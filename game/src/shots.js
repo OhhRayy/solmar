@@ -1,79 +1,190 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// The deterministic screenshot scenes behind ?shot=start|drive|chase|mission. Each one
+// plays the real rules forward from a fresh world for a fixed number of steps, steered
+// by an autopilot that walks to a car, gets in, and drives the road grid toward a
+// target — always forward, turning around a block when the target is behind it, never
+// reversing into a building. The same seed always gives the same frame.
+import { STEP } from './config.js';
+import { dist, wrapAngle } from './random.js';
+import { routeWaypoints } from './world.js';
+import { stepGame } from './engine.js';
+import { startMission } from './missions.js';
+import { SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 
+const SAMPLE = STEP;
 const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
+const DRIVE_SECONDS = 16;
+const CHASE_SECONDS = 7;
+const MISSION_SECONDS = 16;
 
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
-    }
-  }
-  return Infinity;
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
 }
 
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
+/** The autopilot's road route to a target, rebuilt when the target moves or is reached. */
+export function ensureRoute(game, target) {
+  const auto = game.auto;
+  const final = auto.route.length > 0 ? auto.route[auto.route.length - 1] : null;
+  if (!final || dist(final.x, final.y, target.x, target.y) > 60 || auto.index >= auto.route.length) {
+    auto.route = routeWaypoints(game.city, { x: game.player.x, y: game.player.y }, target);
+    auto.index = 0;
   }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
-    }
+  return auto.route[auto.index];
+}
+
+/**
+ * Held keys that drive the player's car toward `target` along the roads. The car only
+ * ever drives forward: when the target is behind it, it steers hard and swings around.
+ * `cap` limits the cruising speed (the drive scene cruises; the chase runs flat out).
+ */
+export function driveHeld(game, target, cap) {
+  const car = game.player.car;
+  const wp = ensureRoute(game, target);
+  if (!wp) return { x: 0, y: 0, up: false, down: false, left: false, right: false, sprint: false, handbrake: false };
+  if (dist(car.x, car.y, wp.x, wp.y) < 70) game.auto.index += 1;
+  const want = Math.atan2(wp.y - car.y, wp.x - car.x);
+  const diff = wrapAngle(want - car.angle);
+  const steer = clamp(diff * 2.2, -1, 1);
+  // Brake for a sharp turn ahead instead of overshooting into a block — but only
+  // while already moving fast; a slow car needs the throttle to get around.
+  const sharpTurn = Math.abs(diff) > 0.9 && Math.abs(car.speed) > 150;
+  // Unstick: if the car is barely moving for a while, back off briefly, then go forward.
+  game.auto.stuck = Math.abs(car.speed) < 12 ? (game.auto.stuck || 0) + SAMPLE : 0;
+  const reversing = game.auto.stuck > 1.2 && game.auto.stuck < 1.8;
+  return {
+    x: 0, y: 0,
+    up: !reversing && !sharpTurn && (cap === undefined || car.speed < cap),
+    down: reversing,
+    left: steer < -0.12,
+    right: steer > 0.12,
+    sprint: false,
+    handbrake: false,
+  };
+}
+
+/** Held keys that walk the player toward a point, sprinting. */
+export function walkHeld(game, target) {
+  const dx = target.x - game.player.x;
+  const dy = target.y - game.player.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return {
+    x: Math.abs(dx / len) > 0.3 ? Math.sign(dx) : 0,
+    y: Math.abs(dy / len) > 0.3 ? Math.sign(dy) : 0,
+    up: dy < -20,
+    down: dy > 20,
+    left: dx < -20,
+    right: dx > 20,
+    sprint: true,
+    handbrake: false,
+  };
+}
+
+export function noActions() {
+  return { enter: false, punch: false };
+}
+
+/** Put the player on foot a short walk from the nearest parked car, ready to steal it. */
+export function stageNearCar(game) {
+  const car = game.nearestCarAny();
+  if (!car) return;
+  game.player.x = car.x - 90;
+  game.player.y = car.y + 30;
+  game.camera.x = game.player.x;
+  game.camera.y = game.player.y;
+}
+
+/** Drive the car at a far corner of the city, re-picking a new corner when it arrives. */
+export function farCornerTarget(game) {
+  const corners = [
+    { x: 240, y: 240 },
+    { x: 3040, y: 240 },
+    { x: 240, y: 2240 },
+    { x: 3040, y: 2240 },
+  ];
+  // Stick with the current corner until the car gets there; re-picking every step
+  // would make it turn back on itself mid-block.
+  if (game.auto.corner && dist(game.auto.corner.x, game.auto.corner.y, game.player.x, game.player.y) > 150) {
+    return game.auto.corner;
   }
+  let best = corners[0];
+  let bestD = -1;
+  for (const c of corners) {
+    const d = dist(c.x, c.y, game.player.x, game.player.y);
+    if (d > bestD) { bestD = d; best = c; }
+  }
+  game.auto.corner = best;
   return best;
 }
 
+/** Run the world forward for `seconds`, steered by `pilot(game) -> {held, actions}`. */
+function simulate(game, seconds, pilot) {
+  const steps = Math.round(seconds / SAMPLE);
+  for (let i = 0; i < steps; i += 1) {
+    const { held, actions } = pilot(game);
+    stepGame(game, held, actions, SAMPLE, false);
+    if (game.screen !== 'play') break;
+  }
+}
+
 /**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
+ * Set `game` to the named scene (start, drive, chase or mission; any other name is
+ * start) and return the screen to draw over it.
  */
-export function stageShot(name, world) {
-  world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
+export function stageShot(name, game) {
+  game.shotMode = true;
+  game.auto = { route: [], index: 0, stuck: 0 };
+  if (name !== 'drive' && name !== 'chase' && name !== 'mission') {
+    const steps = Math.round(START_SECONDS / SAMPLE);
+    for (let i = 0; i < steps; i += 1) stepGame(game, noHeld(), noActions(), SAMPLE, true);
+    return { screen: SCREEN_TITLE };
   }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
+
+  game.screen = 'play';
+  if (name === 'drive') {
+    stageNearCar(game);
+    simulate(game, DRIVE_SECONDS, (g) => {
+      if (!g.player.inCar) {
+        const car = g.nearestCarAny();
+        const held = walkHeld(g, car);
+        const actions = noActions();
+        if (dist(g.player.x, g.player.y, car.x, car.y) < 60) actions.enter = true;
+        return { held, actions };
+      }
+      return { held: driveHeld(g, farCornerTarget(g), 260), actions: noActions() };
+    });
+  } else if (name === 'chase') {
+    stageNearCar(game);
+    // Get in the car, then turn the heat all the way up before the chase begins.
+    simulate(game, 6, (g) => {
+      if (!g.player.inCar) {
+        const car = g.nearestCarAny();
+        const actions = noActions();
+        if (dist(g.player.x, g.player.y, car.x, car.y) < 60) actions.enter = true;
+        return { held: walkHeld(g, car), actions };
+      }
+      return { held: driveHeld(g, farCornerTarget(g)), actions: noActions() };
+    });
+    game.heat = 80;
+    game.heatLock = 5;
+    simulate(game, CHASE_SECONDS, (g) => ({ held: driveHeld(g, farCornerTarget(g)), actions: noActions() }));
+  } else if (name === 'mission') {
+    stageNearCar(game);
+    // Sunset Run: five checkpoints on a 90-second clock. Sixteen seconds in, the job
+    // is still running, with a timer, a target arrow and checkpoints on the road.
+    startMission(game, 1);
+    simulate(game, MISSION_SECONDS, (g) => {
+      if (!g.player.inCar) {
+        const car = g.nearestCarAny();
+        const actions = noActions();
+        if (dist(g.player.x, g.player.y, car.x, car.y) < 60) actions.enter = true;
+        return { held: walkHeld(g, car), actions };
+      }
+      const target = g.target || g.city.garage;
+      return { held: driveHeld(g, target, 420), actions: noActions() };
+    });
   }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+  return { screen: SCREEN_PLAY };
+}
+
+function noHeld() {
+  return { x: 0, y: 0, up: false, down: false, left: false, right: false, sprint: false, handbrake: false };
 }

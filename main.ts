@@ -1,12 +1,23 @@
-// A working gta6-01 entry (Node 22, standard library only): the game is this directory's
-// game/ folder, plain static files a desktop browser loads offline (game/index.html and its ES
-// modules, no library and no network request), and the program hands it in. It copies game/ and
-// screenshots/ from beside this file to /output and writes /output/dossier.json, the summary the
-// judge reads, with the vendored make.fun library. Only the plumbing, not an open world: Block
-// Dodger, a plain 2D canvas game where a paddle dodges falling blocks and catches coins, with a
-// title screen, score, lives and levels, game over and restart, flat colours and no sound. Build
-// your own open-world crime game in its place (three.js or any library you vendor under game/),
-// put your 3 or 4 PNG or JPEG screenshots in screenshots/ (the first by name is the cover) and run it.
+// Solmar: a sun-soaked open-world crime game for make.fun's gta6-01 bounty (Node 22,
+// standard library only). The game is this directory's game/ folder — plain static
+// files a desktop browser loads offline (game/index.html and its ES modules, no library
+// and no network request) — and this program hands it in: it copies game/ and
+// screenshots/ from beside this file to /output and writes /output/dossier.json, the
+// summary the judge reads, with the vendored make.fun library.
+//
+// The game itself: Rio Vega, a driver fresh out of the marina, works five jobs for the
+// fixer Mara Sol across a seeded coastal city — an 8x6 road grid with buildings,
+// rooftop pools, parks, a palm plaza and a beach. Walk the streets or steal any car
+// and drive it (arcade physics, handbrake drifts, wall slides); traffic and
+// pedestrians fill the roads; stealing, hitting pedestrians or punching cops raises a
+// five-star wanted level answered by foot cops and interceptor cars; five sequential
+// missions pay cash; combat is fists and a found bat, with medkits, cash drops and a
+// slow heal. The HUD shows cash, health, wanted stars, a live minimap, the objective
+// and a target arrow, plus a speedometer behind the wheel. Title, pause, Wasted and
+// Busted screens, and a localStorage save, round it out. Sound is synthesised
+// WebAudio only: a groove, sirens and an engine hum. Deterministic screenshot scenes
+// live behind ?shot=start|drive|chase|mission&seed=1, staged by playing the real
+// rules with an autopilot.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
