@@ -32,12 +32,12 @@ No build step, no install: `game/` is plain static files, and `game/index.html` 
 
 ## Screenshots
 
-Deterministic scenes, staged by playing the real rules with an autopilot — `?shot=start|drive|chase|mission&seed=1`:
+Deterministic scenes, staged by playing the real rules with an autopilot — `?shot=finale|drive|mission|start&seed=1`:
 
-1. `1-start.jpg` — the title over the living city
+1. `1-finale.jpg` — the getaway from The Solmar Score: five stars, two interceptors closing in, timer running
 2. `2-drive.jpg` — cruising in a stolen car
-3. `3-chase.jpg` — four stars, interceptors closing in on the coast road
-4. `4-mission.jpg` — Sunset Run in progress, timer running, checkpoint ahead
+3. `3-mission.jpg` — Sunset Run in progress, timer running, checkpoint ahead
+4. `4-start.jpg` — the title over the living city
 
 ## Structure
 

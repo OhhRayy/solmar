@@ -1,4 +1,4 @@
-// The deterministic screenshot scenes behind ?shot=start|drive|chase|mission. Each one
+// The deterministic screenshot scenes behind ?shot=start|drive|chase|mission|finale. Each one
 // plays the real rules forward from a fresh world for a fixed number of steps, steered
 // by an autopilot that walks to a car, gets in, and drives the road grid toward a
 // target — always forward, turning around a block when the target is behind it, never
@@ -115,6 +115,28 @@ export function farCornerTarget(game) {
   return best;
 }
 
+/** The farthest north corner, for the finale getaway: the escape stage ends
+ *  if the player comes within 115 of the Beach Drop-off, and the coast road
+ *  at y≈2240 passes ~80 from it — so the getaway runs north, away from the
+ *  dropoff, and the JOB 5 banner stays up for the whole shot. */
+export function farNorthCornerTarget(game) {
+  const corners = [
+    { x: 240, y: 240 },
+    { x: 3040, y: 240 },
+  ];
+  if (game.auto.northCorner && dist(game.auto.northCorner.x, game.auto.northCorner.y, game.player.x, game.player.y) > 150) {
+    return game.auto.northCorner;
+  }
+  let best = corners[0];
+  let bestD = -1;
+  for (const c of corners) {
+    const d = dist(c.x, c.y, game.player.x, game.player.y);
+    if (d > bestD) { bestD = d; best = c; }
+  }
+  game.auto.northCorner = best;
+  return best;
+}
+
 /** Run the world forward for `seconds`, steered by `pilot(game) -> {held, actions}`. */
 function simulate(game, seconds, pilot) {
   const steps = Math.round(seconds / SAMPLE);
@@ -126,13 +148,13 @@ function simulate(game, seconds, pilot) {
 }
 
 /**
- * Set `game` to the named scene (start, drive, chase or mission; any other name is
- * start) and return the screen to draw over it.
+ * Set `game` to the named scene (start, drive, chase, mission or finale; any other
+ * name is start) and return the screen to draw over it.
  */
 export function stageShot(name, game) {
   game.shotMode = true;
   game.auto = { route: [], index: 0, stuck: 0 };
-  if (name !== 'drive' && name !== 'chase' && name !== 'mission') {
+  if (name !== 'drive' && name !== 'chase' && name !== 'mission' && name !== 'finale') {
     const steps = Math.round(START_SECONDS / SAMPLE);
     for (let i = 0; i < steps; i += 1) stepGame(game, noHeld(), noActions(), SAMPLE, true);
     return { screen: SCREEN_TITLE };
@@ -181,6 +203,33 @@ export function stageShot(name, game) {
       const target = g.target || g.city.garage;
       return { held: driveHeld(g, target, 420), actions: noActions() };
     });
+  } else if (name === 'finale') {
+    stageNearCar(game);
+    // The Solmar Score getaway: steal a car, then run the escape stage flat
+    // out at five stars. The mission is staged straight into 'escape' with
+    // the Beach Drop-off as the target, so the frame shows the JOB 5 banner,
+    // the timer, the target arrow and the interceptors closing in.
+    simulate(game, 6, (g) => {
+      if (!g.player.inCar) {
+        const car = g.nearestCarAny();
+        const actions = noActions();
+        if (dist(g.player.x, g.player.y, car.x, car.y) < 60) actions.enter = true;
+        return { held: walkHeld(g, car), actions };
+      }
+      return { held: driveHeld(g, farNorthCornerTarget(g)), actions: noActions() };
+    });
+    startMission(game, 4);
+    game.mission.stage = 'escape';
+    game.target = { x: game.city.dropoff.x, y: game.city.dropoff.y, label: 'Beach Drop-off' };
+    game.heat = 100;
+    game.heatLock = 30;
+    // Three phases: flat out, then a slow stretch so the interceptors —
+    // which steer straight at the player through the blocks and lose speed
+    // on buildings — can close in, then flat out again so the final frame
+    // shows the car at full speed with the law right behind it.
+    simulate(game, 6, (g) => ({ held: driveHeld(g, farNorthCornerTarget(g)), actions: noActions() }));
+    simulate(game, 6, (g) => ({ held: driveHeld(g, farNorthCornerTarget(g), 120), actions: noActions() }));
+    simulate(game, 5, (g) => ({ held: driveHeld(g, farNorthCornerTarget(g)), actions: noActions() }));
   }
   return { screen: SCREEN_PLAY };
 }
