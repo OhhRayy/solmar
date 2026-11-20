@@ -16,7 +16,7 @@
 // and a target arrow, plus a speedometer behind the wheel. Title, pause, Wasted and
 // Busted screens, and a localStorage save, round it out. Sound is synthesised
 // WebAudio only: a groove, sirens and an engine hum. Deterministic screenshot scenes
-// live behind ?shot=start|drive|chase|mission&seed=1, staged by playing the real
+// live behind ?shot=start|drive|chase|mission|finale|foot&seed=1, staged by playing the real
 // rules with an autopilot.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.

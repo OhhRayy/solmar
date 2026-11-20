@@ -3,6 +3,7 @@
 // title, pause, wasted, busted and failed panels. All drawn in 1280x720 logical space.
 import { FONT, PALETTE, STORY, VIEW, WORLD } from './config.js';
 import { dist } from './random.js';
+import { nearestEnterableCar } from './vehicles.js';
 
 const MINIMAP = { x: 20, y: VIEW.height - 190, w: 230, h: 170 };
 
@@ -42,6 +43,7 @@ export function drawHud(renderer, game, screen) {
     drawObjective(ctx, game);
     drawMinimap(ctx, game);
     drawEdgeArrow(ctx, game);
+    if (!game.player.inCar) drawStealPrompt(ctx, game);
     if (game.player.inCar && game.player.car) drawSpeedometer(ctx, game);
     drawToasts(ctx, game);
     if (game.time < 12) drawControlsHint(ctx);
@@ -231,7 +233,37 @@ function drawEdgeArrow(ctx, game) {
   ctx.font = `700 14px ${FONT}`;
   ctx.fillStyle = '#f2c94c';
   ctx.textAlign = 'center';
-  ctx.fillText(`${Math.round(dist(cam.x, cam.y, game.target.x, game.target.y) / 10) * 10}m`, ax, ay + 30);
+  const label = `${Math.round(dist(cam.x, cam.y, game.target.x, game.target.y) / 10) * 10}m`;
+  const lw = ctx.measureText(label).width;
+  // The label must stay on screen and fully readable: below the arrow by
+  // default, above it when it would run past the bottom edge or sit half-cut
+  // on the minimap panel, and always on its own dark pill so the road, the
+  // sea or the minimap never swallow it.
+  let ly = ay + 30;
+  if (ly > VIEW.height - 8) ly = ay - 26;
+  const onMinimap = ax - lw / 2 - 10 < MINIMAP.x + MINIMAP.w && ax + lw / 2 + 10 > MINIMAP.x
+    && ly - 16 < MINIMAP.y + MINIMAP.h && ly + 6 > MINIMAP.y;
+  if (onMinimap) ly = ay - 26;
+  ly = Math.max(16, Math.min(VIEW.height - 8, ly));
+  panel(ctx, ax - lw / 2 - 10, ly - 15, lw + 20, 22);
+  ctx.fillStyle = '#f2c94c';
+  ctx.fillText(label, ax, ly);
+}
+
+/** On foot beside a stealable car, the game says so: the one action a new
+ *  player otherwise only finds in the controls line. */
+function drawStealPrompt(ctx, game) {
+  if (game.screen !== 'play') return;
+  const car = nearestEnterableCar(game, game.player.x, game.player.y);
+  if (!car) return;
+  const text = 'E — Steal this car';
+  ctx.font = `700 15px ${FONT}`;
+  const w = ctx.measureText(text).width + 32;
+  const x = (VIEW.width - w) / 2;
+  panel(ctx, x, 80, w, 34);
+  ctx.fillStyle = PALETTE.gold;
+  ctx.textAlign = 'center';
+  ctx.fillText(text, VIEW.width / 2, 103);
 }
 
 function drawSpeedometer(ctx, game) {

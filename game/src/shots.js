@@ -1,11 +1,11 @@
-// The deterministic screenshot scenes behind ?shot=start|drive|chase|mission|finale. Each one
+// The deterministic screenshot scenes behind ?shot=start|drive|chase|mission|finale|foot. Each one
 // plays the real rules forward from a fresh world for a fixed number of steps, steered
 // by an autopilot that walks to a car, gets in, and drives the road grid toward a
 // target — always forward, turning around a block when the target is behind it, never
 // reversing into a building. The same seed always gives the same frame.
 import { STEP } from './config.js';
 import { dist, wrapAngle } from './random.js';
-import { routeWaypoints } from './world.js';
+import { resolveCircle, routeWaypoints } from './world.js';
 import { stepGame } from './engine.js';
 import { startMission } from './missions.js';
 import { SCREEN_PLAY, SCREEN_TITLE } from './render.js';
@@ -82,6 +82,49 @@ export function noActions() {
   return { enter: false, punch: false };
 }
 
+/** Keep the law in the frame and off the player: a foot cop farther than 260
+ *  away is pulled to 180 along its own approach, one on top of the player is
+ *  pushed back to 110 so the two read as two people, and a police car sitting
+ *  on the player is pushed back to 260; all are pushed out of any building the
+ *  straight line cut through, so the frame stays honest. */
+function frameChase(game) {
+  const p = game.player;
+  for (const cop of game.cops) {
+    const d = dist(cop.x, cop.y, p.x, p.y);
+    let k = 0;
+    if (d > 260) k = 180 / d;
+    else if (d < 80) k = 110 / Math.max(d, 1);
+    if (k > 0) {
+      cop.x = p.x + (cop.x - p.x) * k;
+      cop.y = p.y + (cop.y - p.y) * k;
+      cop.angle = Math.atan2(p.y - cop.y, p.x - cop.x);
+      resolveCircle(game.city, cop, 12);
+    }
+  }
+  for (const car of game.cars) {
+    if (!car.police) continue;
+    const d = dist(car.x, car.y, p.x, p.y);
+    if (d < 120) {
+      const k = 260 / Math.max(d, 1);
+      car.x = p.x + (car.x - p.x) * k;
+      car.y = p.y + (car.y - p.y) * k;
+      resolveCircle(game.city, car, 20);
+    }
+  }
+}
+
+/** The nearest parked car: it stays where it is, so a scene staged on it holds still. */
+function nearestParkedCar(game) {
+  let best = null;
+  let bestD = Infinity;
+  for (const car of game.cars) {
+    if (car.kind !== 'parked') continue;
+    const d = dist(car.x, car.y, game.player.x, game.player.y);
+    if (d < bestD) { bestD = d; best = car; }
+  }
+  return best;
+}
+
 /** Put the player on foot a short walk from the nearest parked car, ready to steal it. */
 export function stageNearCar(game) {
   const car = game.nearestCarAny();
@@ -148,13 +191,13 @@ function simulate(game, seconds, pilot) {
 }
 
 /**
- * Set `game` to the named scene (start, drive, chase, mission or finale; any other
+ * Set `game` to the named scene (start, drive, chase, mission, finale or foot; any other
  * name is start) and return the screen to draw over it.
  */
 export function stageShot(name, game) {
   game.shotMode = true;
   game.auto = { route: [], index: 0, stuck: 0 };
-  if (name !== 'drive' && name !== 'chase' && name !== 'mission' && name !== 'finale') {
+  if (name !== 'drive' && name !== 'chase' && name !== 'mission' && name !== 'finale' && name !== 'foot') {
     const steps = Math.round(START_SECONDS / SAMPLE);
     for (let i = 0; i < steps; i += 1) stepGame(game, noHeld(), noActions(), SAMPLE, true);
     return { screen: SCREEN_TITLE };
@@ -203,6 +246,42 @@ export function stageShot(name, game) {
       const target = g.target || g.city.garage;
       return { held: driveHeld(g, target, 420), actions: noActions() };
     });
+  } else if (name === 'foot') {
+    // On foot by a parked car, two stars up: Rio walks up to steal it while
+    // the foot cops close in, frozen mid-punch at the nearest one. The frame
+    // shows the half of the game the driving shots never do — the streets on
+    // foot, the steal prompt, the law on foot, and no speedometer.
+    const car = nearestParkedCar(game);
+    if (car) {
+      game.player.x = car.x - 90;
+      game.player.y = car.y + 30;
+      game.camera.x = game.player.x;
+      game.camera.y = game.player.y;
+    }
+    game.heat = 40;
+    game.heatLock = 30;
+    // Walk up to the car, then hold still just long enough for the law to
+    // close in — a longer stand lets an interceptor park on top of Rio.
+    simulate(game, 4, (g) => {
+      if (!car) return { held: noHeld(), actions: noActions() };
+      if (dist(g.player.x, g.player.y, car.x, car.y) < 50) return { held: noHeld(), actions: noActions() };
+      return { held: walkHeld(g, car), actions: noActions() };
+    });
+    simulate(game, 2.5, () => ({ held: noHeld(), actions: noActions() }));
+    // Frame the chase (below): a cop too far to see is pulled in along its
+    // own approach, and a police car sitting on the player is pushed back.
+    frameChase(game);
+    // Freeze mid-punch at the nearest cop, arm out toward them.
+    let nearestCop = null;
+    let nearestD = Infinity;
+    for (const cop of game.cops) {
+      const d = dist(cop.x, cop.y, game.player.x, game.player.y);
+      if (d < nearestD) { nearestD = d; nearestCop = cop; }
+    }
+    if (nearestCop) {
+      game.player.angle = Math.atan2(nearestCop.y - game.player.y, nearestCop.x - game.player.x);
+      game.player.punchAnim = 0.22;
+    }
   } else if (name === 'finale') {
     stageNearCar(game);
     // The Solmar Score getaway: steal a car, then run the escape stage flat

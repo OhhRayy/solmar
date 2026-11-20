@@ -4,7 +4,7 @@
 // taken exactly once per frame and handed to the first step only, so E and the punch
 // can never fire twice on the same press.
 //
-// ?seed=N fixes the city. ?shot=start|drive|chase|mission|finale (with &seed=N) stages that
+// ?seed=N fixes the city. ?shot=start|drive|chase|mission|finale|foot (with &seed=N) stages that
 // scene instead of running the loop, paints it twice and sets window.__shotReady.
 import { STEP } from './config.js';
 import { createGame, readSave, applySave, writeSave, stepGame } from './engine.js';

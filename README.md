@@ -18,7 +18,7 @@ Solmar is a seeded coastal city: an 8×6 road grid with buildings (some with roo
 - **By car:** W / Up to accelerate, S / Down to brake and reverse, A / D to steer, Shift for the handbrake drift. Cars slide off walls instead of sticking. E steps back out.
 - **Wanted:** five stars. Stealing cars, hitting pedestrians and punching cops raise the heat; it cools off when no officer can see you. Foot cops chase and arrest; interceptor cars chase and ram. Get wasted or busted and you wake up at Solmar General, lighter in the pocket.
 - **Missions (five, in order):** Hot Wheels (steal and deliver a car), Sunset Run (five checkpoints, 90 seconds), Lose the Heat (shake a two-star wanted level), Cab Hustle (three fares), The Solmar Score (walk into the Reserve Bank, take the vault cash, lose the law at the beach). Objectives, timers and a target arrow live on the HUD; passing a job pays cash.
-- **HUD:** cash, health, wanted stars, a live minimap (roads, buildings, police, target), an objective banner, a speedometer, and toasts. Title, pause, Wasted, Busted and failed-job screens; progress (cash, jobs done, best cash) saves in localStorage.
+- **HUD:** cash, health, wanted stars, a live minimap (roads, buildings, police, target), an objective banner, a speedometer, a steal prompt when you walk up to a car on foot, and toasts. Title, pause, Wasted, Busted and failed-job screens; progress (cash, jobs done, best cash) saves in localStorage.
 - **Sound:** synthesised WebAudio only — a groove, two-tone sirens and an engine hum that follows your speed. It starts on your first keypress and never errors without audio.
 
 ## Run
@@ -32,10 +32,10 @@ No build step, no install: `game/` is plain static files, and `game/index.html` 
 
 ## Screenshots
 
-Deterministic scenes, staged by playing the real rules with an autopilot — `?shot=finale|drive|mission|start&seed=1`:
+Deterministic scenes, staged by playing the real rules with an autopilot — `?shot=finale|foot|mission|start&seed=1`:
 
 1. `1-finale.jpg` — the getaway from The Solmar Score: five stars, two interceptors closing in, timer running
-2. `2-drive.jpg` — cruising in a stolen car
+2. `2-foot.jpg` — on foot by a parked car at two stars: the steal prompt, a foot cop closing in, Rio mid-punch
 3. `3-mission.jpg` — Sunset Run in progress, timer running, checkpoint ahead
 4. `4-start.jpg` — the title over the living city
 
